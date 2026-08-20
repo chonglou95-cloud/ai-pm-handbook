@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""AI产品经理面试手册.html 的自检脚本。改完页面跑一遍：python3 check_handbook.py"""
+"""AI产品经理面试手册.html 的自检脚本。
+
+  python3 check_handbook.py              结构自检（17 项）
+  python3 check_handbook.py --copy-only  结构自检 + 确认这次只改了文案，没动设计
+"""
 import io, os, re, sys
 from html.parser import HTMLParser
 
@@ -124,7 +128,60 @@ check("有 viewport meta", 'name="viewport"' in s)
 check("有 charset meta", 'charset=' in s)
 check("宽内容有横向滚动容器", 'overflow-x:auto' in s)
 
-print("\n\033[1mAI产品经理面试手册.html 自检\033[0m  (%d 行 / %.1f KB)\n" % (s.count("\n")+1, len(s.encode('utf-8'))/1024))
+# ── --copy-only：与 git HEAD 对比，确认只动了文案 ──────────────
+COPY_ONLY = "--copy-only" in sys.argv
+if COPY_ONLY:
+    import subprocess
+    def git(*a):
+        r = subprocess.run(("git",) + a, cwd=os.path.dirname(os.path.abspath(__file__)),
+                           capture_output=True)
+        return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else None
+    base = git("show", "HEAD:" + os.path.basename(FILE))
+    if base is None:
+        check("能读到 git HEAD 版本", False, "不是 git 仓库，或该文件还没提交过——无法比对")
+    else:
+        def block(txt, tag):
+            m = re.search(r"<%s>(.*?)</%s>" % (tag, tag), txt, re.S)
+            return m.group(1) if m else None
+        for tag, label in (("style", "CSS"), ("script", "JS")):
+            check("未改动 %s（<%s> 整块）" % (label, tag),
+                  block(base, tag) == block(s, tag),
+                  "文案打磨不应该碰 %s。要调设计请单独开一个任务。" % label)
+
+        NAMES = ["图一(主链路)", "图二(RAG)", "图三(安全层)", "兜底迷你图"]
+        svg_b = re.findall(r'<svg class="dg.*?</svg>', base, re.S)
+        svg_s = re.findall(r'<svg class="dg.*?</svg>', s, re.S)
+        diff_svg = [NAMES[i] if i < len(NAMES) else "第%d张" % (i+1)
+                    for i, (a, b) in enumerate(zip(svg_b, svg_s)) if a != b]
+        check("未改动 SVG 架构图", len(svg_b) == len(svg_s) and not diff_svg,
+              "%s 被改了。图里坐标是手排的，改文字会撑破方框或压住旁边的字——请单独开任务处理。"
+              % "、".join(diff_svg) if diff_svg else "图的数量变了")
+
+        # DOM 骨架（标签 + 属性，剥掉所有文字）必须完全一致
+        class Skel(HTMLParser):
+            def __init__(self):
+                super().__init__(convert_charrefs=True); self.out = []
+            def handle_starttag(self, t, a):
+                self.out.append(t + "[" + ",".join("%s=%s" % kv for kv in sorted(a)) + "]")
+            def handle_endtag(self, t):
+                self.out.append("/" + t)
+        def skel(txt):
+            k = Skel(); k.feed(txt); return k.out
+        kb, ks = skel(base), skel(s)
+        first = next((i for i, (a, b) in enumerate(zip(kb, ks)) if a != b), None)
+        detail = ""
+        if len(kb) != len(ks):
+            detail = "标签数量从 %d 变成 %d（增删了元素或改了 class）" % (len(kb), len(ks))
+        elif first is not None:
+            detail = "第 %d 个标签：%s → %s" % (first+1, kb[first][:60], ks[first][:60])
+        check("未改动 DOM 骨架（标签与 class 属性）", kb == ks, detail)
+
+        # 真的改了点什么吗
+        check("确实有文案改动", base != s, "文件和 HEAD 完全一样——什么都没改")
+
+print("\n\033[1mAI产品经理面试手册.html 自检\033[0m  (%d 行 / %.1f KB)%s\n" % (
+      s.count("\n")+1, len(s.encode('utf-8'))/1024,
+      "  \033[36m[只许改文案模式]\033[0m" if COPY_ONLY else ""))
 for n, _ in ok:   print("  \033[32m✓\033[0m %s" % n)
 for n, d in bad:  print("  \033[31m✗\033[0m %s%s" % (n, ("  → " + d) if d else ""))
 print("\n%d 项通过，%d 项失败\n" % (len(ok), len(bad)))

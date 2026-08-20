@@ -18,6 +18,14 @@
 python3 check_handbook.py
 ```
 
+如果这次是**纯文案打磨**（只改文字、不动设计），用这个模式：
+
+```bash
+python3 check_handbook.py --copy-only
+```
+
+它会跟 git HEAD 逐项比对，硬性确认 CSS、JS、三张 SVG 架构图和整个 DOM 骨架一字未动。
+
 脚本会检查标签闭合、三套主题变量是否同步、术语卡结构、编号连续性、SVG marker id、图内文字是否越界或压字、有没有混进外部 CDN 等。全绿之后再在浏览器里确认深色模式、375px 窄屏、背诵模式开关三件事。
 
 ## 页面上的功能
